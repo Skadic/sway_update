@@ -1,0 +1,12 @@
+[package]
+name = "sway_update"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.21.2", features = ["rt", "rt-multi-thread", "net", "io-util", "sync", "macros"]}
+pretty_env_logger = "0.4.0"
+enum_primitive = "0.1.1"
+log = "0.4.17"
+serde = { version = "1.0.145", features = ["derive"] }
+serde_json = "1.0.86"
