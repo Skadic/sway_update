@@ -32,7 +32,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let subscription = {
         let tokens = std::env::args()
             .skip(1)
-            .map(|s| format!("{}", s))
             .collect::<Vec<_>>();
         if tokens.is_empty() {
             return Err("No subscription event given".into());
@@ -55,12 +54,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let res = daemon.subscribe_event_loop(&subscription).await;
 
-    match res {
-        Err(e) => {
-            error!("Error in event loop: {e}");
-            return Err(e.into());
-        }
-        Ok(_) => {}
+    if let Err(e) = res {
+        error!("Error in event loop: {e}");
+        return Err(e.into());
     }
 
     Ok(())
