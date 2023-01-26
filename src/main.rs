@@ -1,4 +1,7 @@
-use error::{EventError, EventLoopError, EwwError, RequestError, ResponseDeserializeError};
+use error::{
+    DaemonError, EventError, EventLoopError, EwwError, RequestError, ResponseDeserializeError,
+    SwayUpdateError,
+};
 use event::{EventType, ModeEvent, WindowEvent};
 use log::debug;
 use message::{Message, MessageType};
@@ -26,23 +29,23 @@ const I3_MAGIC_STRING: [u8; 6] = *b"i3-ipc";
 const HEADER_LENGTH: usize = 14;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<(), SwayUpdateError> {
     pretty_env_logger::init();
 
     let subscription = {
-        let tokens = std::env::args()
-            .skip(1)
-            .collect::<Vec<_>>();
+        let tokens = std::env::args().skip(1).collect::<Vec<_>>();
         if tokens.is_empty() {
-            return Err("No subscription event given".into());
+            return Err(SwayUpdateError::NoSubscriptionEvents);
         };
         format!("{tokens:?}")
     };
 
     debug!("Subscription: {subscription}");
 
-    let sway_socket_addr =
-        std::env::var("I3SOCK").expect("No I3SOCK variable found. Is sway/i3 running?");
+    let Ok(sway_socket_addr) = std::env::var("I3SOCK") else {
+        error!("No I3SOCK variable found. Is sway/i3 running?");
+        return Err(SwayUpdateError::NoSocket);
+    };
 
     // This object checks if it can find an eww instance in your path
     let eww = Eww::new()?;
@@ -68,7 +71,7 @@ struct Eww {
 }
 
 impl Eww {
-    pub fn new() -> Result<Self, Box<dyn Error>> {
+    pub fn new() -> Result<Self, EwwError<()>> {
         let eww_executable = {
             let output = Command::new("which").arg("eww").output()?.stdout;
 
@@ -84,7 +87,7 @@ impl Eww {
 
             if !eww_path.exists() {
                 error!("eww executable not found. If it can't be found by \"which\" there is probably something wrong.");
-                return Err("eww executable not found".into());
+                return Err(EwwError::NoEwwExecutable);
             }
 
             eww_path_str
@@ -150,7 +153,7 @@ struct Daemon {
 }
 
 impl Daemon {
-    pub async fn new(socket_path: &str, eww: Eww) -> std::io::Result<Self> {
+    pub async fn new(socket_path: &str, eww: Eww) -> Result<Self, DaemonError> {
         Ok(Self {
             sway_socket: BufReader::new(UnixStream::connect(socket_path).await?),
             eww,

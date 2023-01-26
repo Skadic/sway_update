@@ -3,14 +3,16 @@ use thiserror::Error;
 
 // ---------------------- Message Error ----------------------
 
-#[derive(Debug,Error)]
+#[derive(Debug, Error)]
 pub enum ResponseDeserializeError {
     #[error("io error while reading response")]
     Io(#[from] std::io::Error),
     #[error("invalid magic string: \"{0}\", must be \"i3-msg\"")]
     InvalidMagicString(String),
-    #[error("invalid type: {0}")]
-    InvalidType(u32),
+    #[error("invalid message type: {0}")]
+    InvalidMessageType(u32),
+    #[error("invalid event type: {0}")]
+    InvalidEventType(u32),
 }
 
 // ---------------------- Event Error ----------------------
@@ -24,7 +26,7 @@ pub enum EventError {
     #[error("error deserializing payload")]
     DeserializePayload(#[from] serde_json::error::Error),
     #[error("error communicating with eww")]
-    Eww(#[from] EwwError<Box<dyn Error>>)
+    Eww(#[from] EwwError<Box<dyn Error>>),
 }
 
 // ---------------------- Eww Error ----------------------
@@ -34,18 +36,23 @@ pub enum EwwError<Err> {
     #[error("error communicating with eww")]
     Io(#[from] std::io::Error),
     #[error("error parsing variable content")]
-    ParseVar(Err)
+    ParseVar(Err),
+    #[error("eww executable not found")]
+    NoEwwExecutable,
 }
 
-impl<Err> EwwError<Err> where Err: 'static + Error {
+impl<Err> EwwError<Err>
+where
+    Err: 'static + Error,
+{
     pub fn boxed(self) -> EwwError<Box<dyn Error>> {
         match self {
             Self::Io(e) => EwwError::Io(e),
-            Self::ParseVar(e) => EwwError::ParseVar(Box::new(e))
+            Self::ParseVar(e) => EwwError::ParseVar(Box::new(e)),
+            Self::NoEwwExecutable => EwwError::NoEwwExecutable,
         }
     }
 }
-
 
 // ---------------------- Event Loop Error ----------------------
 
@@ -74,5 +81,31 @@ pub enum RequestError {
     #[error("error serializing payload")]
     Serialize(serde_json::error::Error),
     #[error("could not subscribe to event bus")]
-    UnsuccessfulSubscription
+    UnsuccessfulSubscription,
+}
+
+#[derive(Debug, Error)]
+pub enum WorkspaceEventParseError {
+    #[error("invalid workspace change: {0}")]
+    Invalid(String),
+}
+
+#[derive(Debug, Error)]
+pub enum SwayUpdateError {
+    #[error("no events to subscribe to")]
+    NoSubscriptionEvents,
+    #[error("no active i3/sway ipc socket found")]
+    NoSocket,
+    #[error("error creating eww instance")]
+    Eww(#[from] EwwError<()>),
+    #[error("error creating daemon")]
+    Daemon(#[from] DaemonError),
+    #[error("error in event loop")]
+    EventLoop(#[from] EventLoopError),
+}
+
+#[derive(Debug, Error)]
+pub enum DaemonError {
+    #[error("error connecting to unix sockete")]
+    Connect(#[from] std::io::Error),
 }

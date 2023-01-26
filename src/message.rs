@@ -1,7 +1,7 @@
 use enum_primitive::FromPrimitive;
 use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 
-use crate::{HEADER_LENGTH, I3_MAGIC_STRING, error::ResponseDeserializeError};
+use crate::{error::ResponseDeserializeError, HEADER_LENGTH, I3_MAGIC_STRING};
 
 #[derive(Clone)]
 pub struct Message {
@@ -19,7 +19,9 @@ impl Message {
 
         // Check if the magic string is correct
         if header[0..6] != I3_MAGIC_STRING {
-            return Err(ResponseDeserializeError::InvalidMagicString(String::from_utf8_lossy(&header[0..6]).to_string()));
+            return Err(ResponseDeserializeError::InvalidMagicString(
+                String::from_utf8_lossy(&header[0..6]).to_string(),
+            ));
         }
 
         // The first 6 bytes of the header are "i3-msg", so we skip them and read the payload length and type
@@ -32,7 +34,9 @@ impl Message {
             if let Some(payload_type) = reply_type_opt {
                 payload_type
             } else {
-                return Err(ResponseDeserializeError::InvalidType(payload_type_int));
+                return Err(ResponseDeserializeError::InvalidMessageType(
+                    payload_type_int,
+                ));
             }
         };
 
@@ -80,4 +84,3 @@ impl MessageType {
         self.as_bytes().into_iter()
     }
 }
-
