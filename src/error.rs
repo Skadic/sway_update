@@ -1,229 +1,111 @@
-use std::{error::Error, fmt::{Display, Debug}};
-
-/// Implements simple from conversions for Error enum types
-macro_rules! quick_from_err {
-    // Non generic variant
-    {$err:ident, $($src:path => $var:ident),+ $(,)?} => {
-        $(
-            impl From<$src> for $err {
-                fn from(err: $src) -> Self {
-                    Self::$var(err)
-                }
-            }
-        )+
-    };
-    // Generic with just one 
-    { $err:ident<$($gen:tt),+>, $src:path => $var:ident $(,)? } => {
-        impl<$($gen)+> From<$src> for $err<$($gen)+> {
-            fn from(err: $src) -> Self {
-                Self::$var(err)
-            }
-        }
-    };
-    {
-        $err:ident<$($gen:tt),+>, 
-        $src:path => $var:ident, 
-        $($srces:path => $vars:ident),+ $(,)?
-    } => {
-        impl<$($gen)+> From<$src> for $err<$($gen)+> {
-            fn from(err: $src) -> Self {
-                Self::$var(err)
-            }
-        }
-        quick_from_err!{$err<$($gen),+>, $($srces => $vars),+}
-    };
-}
+use std::{error::Error, fmt::Debug};
+use thiserror::Error;
 
 // ---------------------- Message Error ----------------------
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum ResponseDeserializeError {
-    Io(std::io::Error),
+    #[error("io error while reading response")]
+    Io(#[from] std::io::Error),
+    #[error("invalid magic string: \"{0}\", must be \"i3-msg\"")]
     InvalidMagicString(String),
-    InvalidType(u32),
-}
-
-quick_from_err!{
-    ResponseDeserializeError, 
-    std::io::Error => Io
-}
-
-
-impl Display for ResponseDeserializeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Io(_) => write!(f, "io error while reading response"),
-            Self::InvalidMagicString(s) => write!(f, "invalid magic string: \"{s}\", must be \"i3-msg\""),
-            Self::InvalidType(type_int) => write!(f, "invalid type: {type_int}"),
-        }
-    }
-}
-
-impl Error for ResponseDeserializeError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(match self {
-            Self::Io(e) => e,
-            _ => return None
-        })
-    }
+    #[error("invalid message type: {0}")]
+    InvalidMessageType(u32),
+    #[error("invalid event type: {0}")]
+    InvalidEventType(u32),
 }
 
 // ---------------------- Event Error ----------------------
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum EventError {
-    Read(ResponseDeserializeError),
-    Request(RequestError),
-    DeserializePayload(serde_json::error::Error),
-    Eww(EwwError<Box<dyn Error>>)
-}
-
-quick_from_err!{
-    EventError, 
-    ResponseDeserializeError => Read,
-    serde_json::error::Error => DeserializePayload,
-    EwwError<Box<dyn Error>> => Eww,
-    RequestError => Request
-}
-
-impl Display for EventError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} while handling event", match self {
-            Self::Read(_) => "error reading event from socket",
-            Self::DeserializePayload(_) => "error deserializing payload",
-            Self::Eww(_) => "error communicating with eww",
-            Self::Request(_) => "error processing request",
-        })
-    }
-}
-
-impl Error for EventError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(match self {
-            EventError::Read(e) => e,
-            EventError::DeserializePayload(e) => e,
-            EventError::Request(e) => e,
-            Self::Eww(EwwError::Io(e)) => e,
-            Self::Eww(EwwError::ParseVar(e)) => e.as_ref(),
-        })
-    }
+    #[error("error reading event from socket")]
+    Read(#[from] ResponseDeserializeError),
+    #[error("error processing request")]
+    Request(#[from] RequestError),
+    #[error("error deserializing payload")]
+    DeserializePayload(#[from] serde_json::error::Error),
+    #[error("error communicating with eww")]
+    Eww(#[from] EwwError<Box<dyn Error>>),
 }
 
 // ---------------------- Eww Error ----------------------
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum EwwError<Err> {
-    Io(std::io::Error),
-    ParseVar(Err)
+    #[error("error communicating with eww")]
+    Io(#[from] std::io::Error),
+    #[error("error parsing variable content")]
+    ParseVar(Err),
+    #[error("eww executable not found")]
+    NoEwwExecutable,
 }
 
-impl<Err> EwwError<Err> where Err: 'static + Error {
+impl<Err> EwwError<Err>
+where
+    Err: 'static + Error,
+{
     pub fn boxed(self) -> EwwError<Box<dyn Error>> {
         match self {
             Self::Io(e) => EwwError::Io(e),
-            Self::ParseVar(e) => EwwError::ParseVar(Box::new(e))
+            Self::ParseVar(e) => EwwError::ParseVar(Box::new(e)),
+            Self::NoEwwExecutable => EwwError::NoEwwExecutable,
         }
     }
 }
-
-impl<Err> Display for EwwError<Err> where Err: Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Io(_) => write!(f, "error communicating with eww"),
-            Self::ParseVar(_) => write!(f, "error parsing variable content")
-        }
-    }
-}
-
-impl<Err> Error for EwwError<Err> where Err: 'static + Error {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(match self {
-            Self::Io(e) => e,
-            Self::ParseVar(e) => e,
-        })
-    }
-}
-
 
 // ---------------------- Event Loop Error ----------------------
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum EventLoopError {
-    Subscription(RequestError),
-    Read(ResponseDeserializeError),
-    Event(EventError),
-}
-
-quick_from_err! {
-    EventLoopError,
-    RequestError => Subscription,
-    ResponseDeserializeError => Read,
-    EventError => Event,
-}
-
-impl Display for EventLoopError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Subscription(_) => write!(f, "error subscribing to events"),
-            Self::Read(_) => write!(f, "error reading event from socket"),
-            Self::Event(_) => write!(f, "error during event handling"),
-        }
-    }
-}
-
-impl Error for EventLoopError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(match self {
-            Self::Subscription(e) => e,
-            Self::Read(e) => e,
-            Self::Event(e) => e,
-        })
-    }
+    #[error("error subscribing to events")]
+    Subscription(#[from] RequestError),
+    #[error("error reading event from socket")]
+    Read(#[from] ResponseDeserializeError),
+    #[error("error during event handling")]
+    Event(#[from] EventError),
 }
 
 // ---------------------- Request Error ----------------------
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum RequestError {
-    Io(std::io::Error),
-    Read(ResponseDeserializeError),
-    Eww(EwwError<Box<dyn Error>>),
+    #[error("io error")]
+    Io(#[from] std::io::Error),
+    #[error("error reading response from socket")]
+    Read(#[from] ResponseDeserializeError),
+    #[error("error interacting with eww")]
+    Eww(#[from] EwwError<Box<dyn Error>>),
+    #[error("error deserializing payload")]
     Deserialize(serde_json::error::Error),
+    #[error("error serializing payload")]
     Serialize(serde_json::error::Error),
-    UnsuccessfulSubscription
+    #[error("could not subscribe to event bus")]
+    UnsuccessfulSubscription,
 }
 
-quick_from_err!{
-    RequestError, 
-    std::io::Error => Io,
-    ResponseDeserializeError => Read,
-    EwwError<Box<dyn Error>> => Eww,
+#[derive(Debug, Error)]
+pub enum WorkspaceEventParseError {
+    #[error("invalid workspace change: {0}")]
+    Invalid(String),
 }
 
-impl Display for RequestError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use RequestError::*;
-        match self {
-            Eww(EwwError::ParseVar(_)) => write!(f, "error parsing eww variable content"),
-            Eww(EwwError::Io(_)) | Io(_) => write!(f, "io error"),
-            Read(_) => write!(f, "error reading response from socket"),
-            Deserialize(_) => write!(f, "error deserializing payload"),
-            Serialize(_) => write!(f, "error serializing data to be sent to eww"),
-            UnsuccessfulSubscription => write!(f, "subscription unsuccessful")
-        }
-    }
-} 
+#[derive(Debug, Error)]
+pub enum SwayUpdateError {
+    #[error("no events to subscribe to")]
+    NoSubscriptionEvents,
+    #[error("no active i3/sway ipc socket found")]
+    NoSocket,
+    #[error("error creating eww instance")]
+    Eww(#[from] EwwError<()>),
+    #[error("error creating daemon")]
+    Daemon(#[from] DaemonError),
+    #[error("error in event loop")]
+    EventLoop(#[from] EventLoopError),
+}
 
-impl Error for RequestError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        use RequestError::*;
-        Some(match self {
-            Eww(EwwError::ParseVar(e)) => e.as_ref(),
-            Io(e) | Eww(EwwError::Io(e)) => e,
-            Read(e) => e,
-            Deserialize(e) => e,
-            Serialize(e) => e,
-            _ => return None
-        })
-    }
+#[derive(Debug, Error)]
+pub enum DaemonError {
+    #[error("error connecting to unix sockete")]
+    Connect(#[from] std::io::Error),
 }

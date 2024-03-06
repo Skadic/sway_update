@@ -5,8 +5,9 @@ use serde::Deserialize;
 use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 
 use crate::{
+    error::{ResponseDeserializeError, WorkspaceEventParseError},
     objects::{Window, Workspace},
-    HEADER_LENGTH, I3_MAGIC_STRING, error::ResponseDeserializeError,
+    HEADER_LENGTH, I3_MAGIC_STRING,
 };
 
 #[derive(PartialEq, Eq, Clone)]
@@ -25,7 +26,9 @@ impl Event {
 
         // Check if the magic string is correct
         if header[0..6] != I3_MAGIC_STRING {
-            return Err(ResponseDeserializeError::InvalidMagicString(String::from_utf8_lossy(&header[0..6]).to_string()));
+            return Err(ResponseDeserializeError::InvalidMagicString(
+                String::from_utf8_lossy(&header[0..6]).to_string(),
+            ));
         }
 
         // The first 6 bytes of the header are "i3-msg", so we skip them and read the payload length and type
@@ -38,7 +41,7 @@ impl Event {
             if let Some(payload_type) = reply_type_opt {
                 payload_type
             } else {
-                return Err(ResponseDeserializeError::InvalidType(payload_type_int));
+                return Err(ResponseDeserializeError::InvalidEventType(payload_type_int));
             }
         };
 
@@ -83,7 +86,7 @@ pub enum WorkspaceEventChange {
 }
 
 impl FromStr for WorkspaceEventChange {
-    type Err = String;
+    type Err = WorkspaceEventParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         use WorkspaceEventChange::*;
@@ -95,7 +98,7 @@ impl FromStr for WorkspaceEventChange {
             "rename" => Rename,
             "urgent" => Urgent,
             "reload" => Reload,
-            _ => return Err(format!("Invalid workspace change: {s}")),
+            _ => return Err(WorkspaceEventParseError::Invalid(s.to_string())),
         })
     }
 }
