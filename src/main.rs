@@ -42,8 +42,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     debug!("Subscription: {subscription}");
 
-    let sway_socket_addr =
-        std::env::var("I3SOCK").expect("No I3SOCK variable found. Is sway/i3 running?");
+    let sway_socket_addr = std::env::var("I3SOCK")
+        .or_else(|_| std::env::var("SWAYSOCK"))
+        .or_else(|_| {
+            std::process::Command::new("sway")
+                .arg("--get-socketpath")
+                .output()
+                .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        })
+        .expect("Could not determine socket path. Is sway running?");
 
     // This object checks if it can find an eww instance in your path
     let eww = Eww::new()?;
