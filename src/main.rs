@@ -3,7 +3,6 @@ use error::{
     SwayUpdateError,
 };
 use event::{EventType, ModeEvent, WindowEvent};
-use log::debug;
 use message::{Message, MessageType};
 
 use objects::{Workspace, WorkspaceInfo};
@@ -12,11 +11,11 @@ use tokio::{
     io::{AsyncWriteExt, BufReader},
     net::UnixStream,
 };
+use tracing::{debug, error, info, trace, warn};
+use tracing_subscriber::EnvFilter;
 
 use crate::event::Event;
 
-#[macro_use]
-extern crate log;
 #[macro_use]
 extern crate enum_primitive;
 
@@ -30,7 +29,10 @@ const HEADER_LENGTH: usize = 14;
 
 #[tokio::main]
 async fn main() -> Result<(), SwayUpdateError> {
-    pretty_env_logger::init();
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .without_time()
+        .init();
 
     let subscription = {
         let tokens = std::env::args().skip(1).collect::<Vec<_>>();
@@ -40,7 +42,7 @@ async fn main() -> Result<(), SwayUpdateError> {
         format!("{tokens:?}")
     };
 
-    debug!("Subscription: {subscription}");
+    debug!(?subscription, "Enabled Subscriptions");
 
     let sway_socket_addr = std::env::var("I3SOCK")
         .or_else(|_| std::env::var("SWAYSOCK"))
@@ -50,12 +52,14 @@ async fn main() -> Result<(), SwayUpdateError> {
                 .output()
                 .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
         })
+        .ok()
+        .filter(|s| !s.is_empty())
         .expect("Could not determine socket path. Is sway running?");
 
     // This object checks if it can find an eww instance in your path
     let eww = Eww::new()?;
 
-    debug!("Sway Socket Address: {sway_socket_addr}");
+    debug!(address = sway_socket_addr, "Sway Socket Address");
     debug!("Eww executable: {}", eww.binary);
 
     let mut daemon = Daemon::new(&sway_socket_addr, eww).await?;
@@ -70,7 +74,7 @@ async fn main() -> Result<(), SwayUpdateError> {
     Ok(())
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct Eww {
     pub binary: String,
 }
@@ -158,6 +162,7 @@ struct Daemon {
 }
 
 impl Daemon {
+    #[tracing::instrument]
     pub async fn new(socket_path: &str, eww: Eww) -> Result<Self, DaemonError> {
         Ok(Self {
             sway_socket: BufReader::new(UnixStream::connect(socket_path).await?),
@@ -208,6 +213,7 @@ impl Daemon {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all,fields(payload_type))]
     fn handle_response(
         &self,
         payload_type: MessageType,
@@ -215,6 +221,7 @@ impl Daemon {
     ) -> Result<(), RequestError> {
         let payload = payload.as_ref();
 
+        trace!(payload = %AsRef::<str>::as_ref(payload), "handling response");
         match payload_type {
             MessageType::GetWorkspaces => {
                 let workspaces = {
@@ -235,8 +242,10 @@ impl Daemon {
                         .collect::<HashMap<_, _>>()
                 };
 
+                debug!(?workspaces);
+
                 // The remaining workspaces are filled in with default-constructed ones
-                let workspace_infos = (1usize..=8)
+                let workspace_infos = (1..=8)
                     .map(|i| {
                         workspaces
                             .get(&i)
@@ -303,6 +312,7 @@ impl Daemon {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all,fields(?event_type))]
     async fn handle_event(
         &mut self,
         event_type: EventType,

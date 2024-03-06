@@ -19,13 +19,13 @@ pub enum ResponseDeserializeError {
 
 #[derive(Debug, Error)]
 pub enum EventError {
-    #[error("error reading event from socket")]
+    #[error("error reading event from socket: {0}")]
     Read(#[from] ResponseDeserializeError),
-    #[error("error processing request")]
+    #[error("error processing request: {0}")]
     Request(#[from] RequestError),
-    #[error("error deserializing payload")]
+    #[error("error deserializing event payload: {0}")]
     DeserializePayload(#[from] serde_json::error::Error),
-    #[error("error communicating with eww")]
+    #[error("error communicating with eww: {0}")]
     Eww(#[from] EwwError<Box<dyn Error>>),
 }
 
@@ -76,7 +76,7 @@ pub enum RequestError {
     Read(#[from] ResponseDeserializeError),
     #[error("error interacting with eww")]
     Eww(#[from] EwwError<Box<dyn Error>>),
-    #[error("error deserializing payload")]
+    #[error("error deserializing request payload: {0}")]
     Deserialize(serde_json::error::Error),
     #[error("error serializing payload")]
     Serialize(serde_json::error::Error),

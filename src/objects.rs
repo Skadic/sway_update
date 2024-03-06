@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Deserialize, Debug, Clone)]
 pub struct Workspace {
     pub id: usize,
-    pub num: usize,
+    pub num: isize,
     pub name: String,
     pub output: String,
     pub focused: bool,
@@ -15,7 +15,7 @@ pub struct Workspace {
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct WorkspaceInfo {
     pub name: String,
-    pub num: usize,
+    pub num: isize,
     pub focused: bool,
     pub urgent: bool,
     pub visible: bool,
@@ -23,7 +23,7 @@ pub struct WorkspaceInfo {
 }
 
 impl WorkspaceInfo {
-    pub fn new(name: &str, num: usize) -> Self {
+    pub fn new(name: &str, num: isize) -> Self {
         Self {
             name: name.to_owned(),
             num,
