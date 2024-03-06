@@ -13,7 +13,9 @@ rustPlatform.buildRustPackage {
   version = "0.1.0";
 
   src = gitignoreSource ./.;
-  cargoHash = lib.fakeHash;
+  cargoLock = {
+    lockFile = ./Cargo.lock;
+  };
 
   meta = with lib; {
     homepage = "";
